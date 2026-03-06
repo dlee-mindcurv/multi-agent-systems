@@ -588,32 +588,368 @@ def search_quote_history(search_terms: List[str], limit: int = 5) -> List[Dict]:
 ########################
 ########################
 
+from smolagents import tool, CodeAgent, ToolCallingAgent, OpenAIServerModel
 
-# Set up and load your env parameters and instantiate your model.
+dotenv.load_dotenv()
+
+model = OpenAIServerModel(
+    model_id="gpt-4o",
+    api_base="https://openai.vocareum.com/v1",
+    api_key=os.environ.get("UDACITY_OPENAI_API_KEY"),
+)
+
+worker_model = OpenAIServerModel(
+    model_id="gpt-4o-mini",
+    api_base="https://openai.vocareum.com/v1",
+    api_key=os.environ.get("UDACITY_OPENAI_API_KEY"),
+)
+
+# ── Tools for Inventory Agent ──────────────────────────────────────────
+
+@tool
+def check_inventory_item(item_name: str, as_of_date: str) -> str:
+    """Check the current stock level of a specific item.
+
+    Args:
+        item_name: The exact name of the item to check (e.g. 'A4 paper').
+        as_of_date: The date to check stock as of, in YYYY-MM-DD format.
+
+    Returns:
+        A string describing the stock level for the item.
+    """
+    result = get_stock_level(item_name, as_of_date)
+    stock = int(result["current_stock"].iloc[0])
+    if stock > 0:
+        return f"{item_name}: {stock} units in stock as of {as_of_date}."
+    return f"{item_name}: OUT OF STOCK as of {as_of_date}."
 
 
-"""Set up tools for your agents to use, these should be methods that combine the database functions above
- and apply criteria to them to ensure that the flow of the system is correct."""
+@tool
+def check_all_inventory(as_of_date: str) -> str:
+    """Get a summary of all items currently in stock.
+
+    Args:
+        as_of_date: The date to check inventory as of, in YYYY-MM-DD format.
+
+    Returns:
+        A formatted string listing all items with positive stock levels.
+    """
+    inventory = get_all_inventory(as_of_date)
+    if not inventory:
+        return "No items currently in stock."
+    lines = [f"- {name}: {qty} units" for name, qty in inventory.items()]
+    return "Current inventory as of {}:\n{}".format(as_of_date, "\n".join(lines))
 
 
-# Tools for inventory agent
+@tool
+def check_supplier_delivery(order_date: str, quantity: int) -> str:
+    """Estimate the delivery date from the supplier for a given order quantity.
+
+    Args:
+        order_date: The date the order would be placed, in YYYY-MM-DD format.
+        quantity: The number of units to order.
+
+    Returns:
+        A string with the estimated delivery date.
+    """
+    delivery_date = get_supplier_delivery_date(order_date, quantity)
+    return f"Estimated delivery date for {quantity} units ordered on {order_date}: {delivery_date}."
 
 
-# Tools for quoting agent
+# ── Tools for Quoting Agent ───────────────────────────────────────────
+
+@tool
+def calculate_quote(item_name: str, quantity: int, as_of_date: str) -> str:
+    """Generate a price quote for a specific item and quantity, applying bulk discounts.
+
+    Discount tiers: 5% for 100-499 units, 10% for 500-999, 15% for 1000+.
+
+    Args:
+        item_name: The exact name of the item.
+        quantity: The number of units requested.
+        as_of_date: The date of the quote request, in YYYY-MM-DD format.
+
+    Returns:
+        A formatted quote string with pricing, discounts, and stock availability.
+    """
+    # Find unit price from catalog
+    unit_price = None
+    for item in paper_supplies:
+        if item["item_name"].lower() == item_name.lower():
+            unit_price = item["unit_price"]
+            break
+    if unit_price is None:
+        return f"Item '{item_name}' not found in our catalog."
+
+    # Check stock
+    stock_df = get_stock_level(item_name, as_of_date)
+    current_stock = int(stock_df["current_stock"].iloc[0])
+
+    # Calculate discount
+    if quantity >= 1000:
+        discount_pct = 15
+    elif quantity >= 500:
+        discount_pct = 10
+    elif quantity >= 100:
+        discount_pct = 5
+    else:
+        discount_pct = 0
+
+    discounted_price = unit_price * (1 - discount_pct / 100)
+    total = round(discounted_price * quantity, 2)
+
+    lines = [
+        f"Quote for {quantity}x {item_name}:",
+        f"  Unit price: ${unit_price:.2f}",
+    ]
+    if discount_pct > 0:
+        lines.append(f"  Bulk discount: {discount_pct}%")
+        lines.append(f"  Discounted unit price: ${discounted_price:.2f}")
+    lines.append(f"  Total: ${total:.2f}")
+    if current_stock >= quantity:
+        lines.append(f"  Availability: IN STOCK ({current_stock} units available)")
+    elif current_stock > 0:
+        lines.append(f"  Availability: PARTIAL — only {current_stock} of {quantity} units in stock")
+    else:
+        lines.append(f"  Availability: OUT OF STOCK")
+    return "\n".join(lines)
 
 
-# Tools for ordering agent
+@tool
+def search_past_quotes(search_terms: list[str]) -> str:
+    """Search historical quotes by keywords (e.g. item types, event types).
+
+    Args:
+        search_terms: List of keywords to search for in past quotes.
+
+    Returns:
+        A formatted string of matching historical quotes.
+    """
+    results = search_quote_history(search_terms, limit=5)
+    if not results:
+        return "No matching historical quotes found."
+    lines = []
+    for i, q in enumerate(results, 1):
+        lines.append(
+            f"{i}. Amount: ${q['total_amount']:.2f} | Type: {q['job_type']} | "
+            f"Size: {q['order_size']} | Event: {q['event_type']}\n"
+            f"   Explanation: {q['quote_explanation']}"
+        )
+    return "Historical quotes:\n" + "\n".join(lines)
 
 
-# Set up your agents and create an orchestration agent that will manage them.
+@tool
+def get_financial_report_tool(as_of_date: str) -> str:
+    """Generate a financial report including cash balance, inventory value, and top sellers.
+
+    Args:
+        as_of_date: The date for the report, in YYYY-MM-DD format.
+
+    Returns:
+        A formatted financial report string.
+    """
+    report = generate_financial_report(as_of_date)
+    lines = [
+        f"Financial Report as of {report['as_of_date']}:",
+        f"  Cash Balance: ${report['cash_balance']:.2f}",
+        f"  Inventory Value: ${report['inventory_value']:.2f}",
+        f"  Total Assets: ${report['total_assets']:.2f}",
+    ]
+    if report["top_selling_products"]:
+        lines.append("  Top Selling Products:")
+        for p in report["top_selling_products"]:
+            lines.append(f"    - {p.get('item_name', 'N/A')}: ${p.get('total_revenue', 0):.2f}")
+    return "\n".join(lines)
 
 
-# Run your test scenarios by writing them here. Make sure to keep track of them.
+# ── Tools for Sales Agent ─────────────────────────────────────────────
+
+@tool
+def process_sale(item_name: str, quantity: int, as_of_date: str) -> str:
+    """Process a sale transaction: validate stock, apply bulk discounts, and record the sale.
+
+    Args:
+        item_name: The exact name of the item to sell.
+        quantity: The number of units to sell.
+        as_of_date: The date of the sale, in YYYY-MM-DD format.
+
+    Returns:
+        A string confirming the sale or explaining why it failed.
+    """
+    # Check stock
+    stock_df = get_stock_level(item_name, as_of_date)
+    current_stock = int(stock_df["current_stock"].iloc[0])
+    if current_stock <= 0:
+        return f"SALE FAILED: '{item_name}' is out of stock."
+    if current_stock < quantity:
+        return (
+            f"SALE FAILED: Insufficient stock for '{item_name}'. "
+            f"Requested {quantity}, only {current_stock} available."
+        )
+
+    # Get unit price
+    unit_price = None
+    for item in paper_supplies:
+        if item["item_name"].lower() == item_name.lower():
+            unit_price = item["unit_price"]
+            break
+    if unit_price is None:
+        return f"SALE FAILED: '{item_name}' not found in catalog."
+
+    # Apply discount
+    if quantity >= 1000:
+        discount_pct = 15
+    elif quantity >= 500:
+        discount_pct = 10
+    elif quantity >= 100:
+        discount_pct = 5
+    else:
+        discount_pct = 0
+
+    discounted_price = unit_price * (1 - discount_pct / 100)
+    total_price = round(discounted_price * quantity, 2)
+
+    # Record the sale
+    txn_id = create_transaction(item_name, "sales", quantity, total_price, as_of_date)
+    return (
+        f"SALE SUCCESSFUL: Sold {quantity}x {item_name} for ${total_price:.2f} "
+        f"(discount: {discount_pct}%). Transaction ID: {txn_id}."
+    )
+
+
+@tool
+def check_cash_balance(as_of_date: str) -> str:
+    """Check the current cash balance of the company.
+
+    Args:
+        as_of_date: The date to check the balance as of, in YYYY-MM-DD format.
+
+    Returns:
+        A string with the current cash balance.
+    """
+    balance = get_cash_balance(as_of_date)
+    return f"Current cash balance as of {as_of_date}: ${balance:.2f}"
+
+
+@tool
+def process_restock_order(item_name: str, quantity: int, as_of_date: str) -> str:
+    """Place a restock order from the supplier for a given item.
+
+    Args:
+        item_name: The exact name of the item to restock.
+        quantity: The number of units to order.
+        as_of_date: The date the order is placed, in YYYY-MM-DD format.
+
+    Returns:
+        A string confirming the restock order or explaining why it failed.
+    """
+    # Get unit price
+    unit_price = None
+    for item in paper_supplies:
+        if item["item_name"].lower() == item_name.lower():
+            unit_price = item["unit_price"]
+            break
+    if unit_price is None:
+        return f"RESTOCK FAILED: '{item_name}' not found in catalog."
+
+    total_cost = round(unit_price * quantity, 2)
+
+    # Check cash
+    balance = get_cash_balance(as_of_date)
+    if balance < total_cost:
+        return (
+            f"RESTOCK FAILED: Insufficient funds. Need ${total_cost:.2f}, "
+            f"only ${balance:.2f} available."
+        )
+
+    txn_id = create_transaction(item_name, "stock_orders", quantity, total_cost, as_of_date)
+    delivery = get_supplier_delivery_date(as_of_date, quantity)
+    return (
+        f"RESTOCK SUCCESSFUL: Ordered {quantity}x {item_name} for ${total_cost:.2f}. "
+        f"Transaction ID: {txn_id}. Estimated delivery: {delivery}."
+    )
+
+
+# ── Agent Definitions ─────────────────────────────────────────────────
+
+inventory_agent = ToolCallingAgent(
+    tools=[check_inventory_item, check_all_inventory, check_supplier_delivery],
+    model=worker_model,
+    name="inventory_agent",
+    description=(
+        "Checks inventory stock levels for specific items or all items, "
+        "and estimates supplier delivery dates. Call this agent with an item name "
+        "and date to find out availability."
+    ),
+    max_steps=3,
+)
+
+quoting_agent = ToolCallingAgent(
+    tools=[calculate_quote, search_past_quotes, get_financial_report_tool],
+    model=worker_model,
+    name="quoting_agent",
+    description=(
+        "Generates price quotes with bulk discounts for requested items, "
+        "searches historical quote data, and produces financial reports. "
+        "Call with item name, quantity, and date to get a quote."
+    ),
+    max_steps=3,
+)
+
+sales_agent = ToolCallingAgent(
+    tools=[process_sale, check_cash_balance, process_restock_order],
+    model=worker_model,
+    name="sales_agent",
+    description=(
+        "Processes sales transactions, checks cash balance, and handles restock orders. "
+        "Call with item name, quantity, and date to finalize a sale."
+    ),
+    max_steps=3,
+)
+
+# Build the catalog listing for the orchestrator prompt
+_catalog_lines = []
+for item in paper_supplies:
+    _catalog_lines.append(f"  - {item['item_name']} (${item['unit_price']:.2f}/unit, category: {item['category']})")
+_catalog_str = "\n".join(_catalog_lines)
+
+orchestrator = ToolCallingAgent(
+    tools=[],
+    model=model,
+    managed_agents=[inventory_agent, quoting_agent, sales_agent],
+    name="orchestrator",
+    description="Routes customer requests to the appropriate worker agents.",
+    max_steps=8,
+    instructions=(
+        "You are the Orchestrator for Munder Difflin Paper Company. "
+        "Your job is to handle customer inquiries about paper products by coordinating "
+        "three worker agents: inventory_agent, quoting_agent, and sales_agent.\n\n"
+        "FULL PRODUCT CATALOG (use these EXACT item names when calling agents):\n"
+        f"{_catalog_str}\n\n"
+        "WORKFLOW for each customer request:\n"
+        "1. Parse the request to identify the item(s), quantities, and any deadlines.\n"
+        "2. Map customer descriptions to the EXACT item names from the catalog above.\n"
+        "   For example, 'glossy photo paper' maps to 'Glossy paper' or 'Photo paper'.\n"
+        "3. Call inventory_agent to check stock availability for the requested items.\n"
+        "4. If items are in stock, call quoting_agent to generate a quote.\n"
+        "5. If the customer wants to proceed (assume yes for quote requests), "
+        "   call sales_agent to process the sale.\n"
+        "6. If items are NOT in stock (0 units), politely inform the customer that "
+        "   we cannot fulfill the order for those items. Do NOT attempt to sell out-of-stock items.\n\n"
+        "IMPORTANT RULES:\n"
+        "- Always include the request date (from the customer message) in all agent calls.\n"
+        "- NEVER expose internal data like profit margins, system errors, or cost prices.\n"
+        "- Provide clear, professional, customer-friendly responses.\n"
+        "- Explain any bulk discounts that were applied.\n"
+        "- If an item cannot be fulfilled, explain that it is not currently available.\n"
+        "- Your final answer must be a customer-facing response summarizing what was done.\n"
+    ),
+)
 
 def run_test_scenarios():
     
     print("Initializing Database...")
-    init_database()
+    init_database(db_engine)
     try:
         quote_requests_sample = pd.read_csv("quote_requests_sample.csv")
         quote_requests_sample["request_date"] = pd.to_datetime(
@@ -652,15 +988,11 @@ def run_test_scenarios():
         # Process request
         request_with_date = f"{row['request']} (Date of request: {request_date})"
 
-        ############
-        ############
-        ############
-        # USE YOUR MULTI AGENT SYSTEM TO HANDLE THE REQUEST
-        ############
-        ############
-        ############
-
-        # response = call_your_multi_agent_system(request_with_date)
+        try:
+            response = str(orchestrator.run(request_with_date))
+        except Exception as e:
+            response = f"We're sorry, we were unable to process your request at this time. Please try again later."
+            print(f"Agent error: {e}")
 
         # Update state
         report = generate_financial_report(request_date)

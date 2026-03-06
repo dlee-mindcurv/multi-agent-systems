@@ -1,1 +1,4 @@
 /.idea/
+.env
+munder_difflin.db
+test_results.csv
