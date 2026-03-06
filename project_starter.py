@@ -592,17 +592,36 @@ from smolagents import tool, CodeAgent, ToolCallingAgent, OpenAIServerModel
 
 dotenv.load_dotenv()
 
-model = OpenAIServerModel(
-    model_id="gpt-4o",
-    api_base="https://openai.vocareum.com/v1",
-    api_key=os.environ.get("UDACITY_OPENAI_API_KEY"),
-)
+anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+openai_key = os.environ.get("UDACITY_OPENAI_API_KEY")
 
-worker_model = OpenAIServerModel(
-    model_id="gpt-4o-mini",
-    api_base="https://openai.vocareum.com/v1",
-    api_key=os.environ.get("UDACITY_OPENAI_API_KEY"),
-)
+if anthropic_key:
+    from smolagents import LiteLLMModel
+    model = LiteLLMModel(
+        model_id="anthropic/claude-sonnet-4-20250514",
+        api_key=anthropic_key,
+    )
+    worker_model = LiteLLMModel(
+        model_id="anthropic/claude-haiku-4-5-20251001",
+        api_key=anthropic_key,
+    )
+    print("Using Anthropic Claude models.")
+elif openai_key:
+    model = OpenAIServerModel(
+        model_id="gpt-4o",
+        api_base="https://openai.vocareum.com/v1",
+        api_key=openai_key,
+    )
+    worker_model = OpenAIServerModel(
+        model_id="gpt-4o-mini",
+        api_base="https://openai.vocareum.com/v1",
+        api_key=openai_key,
+    )
+    print("Using OpenAI (Vocareum) models.")
+else:
+    raise RuntimeError(
+        "No API key found. Set ANTHROPIC_API_KEY or UDACITY_OPENAI_API_KEY in .env"
+    )
 
 # ── Tools for Inventory Agent ──────────────────────────────────────────
 
