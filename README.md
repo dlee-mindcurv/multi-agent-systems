@@ -1,94 +1,98 @@
-# Munder Difflin Multi-Agent System Project
+# Munder Difflin Multi-Agent System
 
-Welcome to the starter code repository for the **Munder Difflin Paper Company Multi-Agent System Project**! This repository contains the starter code and tools you will need to design, build, and test a multi-agent system that supports core business operations at a fictional paper manufacturing company.
+A multi-agent AI system that automates inventory checks, quote generation, and order fulfillment for Munder Difflin Paper Company — a Udacity project built with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-## Project Context
+## Overview
 
-You’ve been hired as an AI consultant by Munder Difflin Paper Company, a fictional enterprise looking to modernize their workflows. They need a smart, modular **multi-agent system** to automate:
+This project implements a multi-agent system (up to 5 agents) to handle core business operations for a fictional paper manufacturing company. All I/O is text-based.
 
-- **Inventory checks** and restocking decisions
-- **Quote generation** for incoming sales inquiries
-- **Order fulfillment** including supplier logistics and transactions
+**Agents:**
+- **Orchestrator** — routes customer inquiries to the appropriate worker agent
+- **Inventory Agent** — checks stock levels, decides on reorders
+- **Quoting Agent** — generates quotes with bulk discounts, references historical data
+- **Sales/Ordering Agent** — finalizes transactions, updates the database
 
-Your solution must use a maximum of **5 agents** and process inputs and outputs entirely via **text-based communication**.
+**Key capabilities:**
+- Inventory checks and restocking decisions
+- Quote generation for incoming sales inquiries
+- Order fulfillment including supplier logistics and transactions
 
-This project challenges your ability to orchestrate agents using modern Python frameworks like `smolagents`, `pydantic-ai`, or `npcsh`, and combine that with real data tools like `sqlite3`, `pandas`, and LLM prompt engineering.
+## Built with Claude Code
 
----
+This project was developed using [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Anthropic’s CLI tool for agentic coding. Claude Code assisted with:
 
-## What’s Included
+- Designing and implementing the multi-agent architecture
+- Writing agent tool wrappers and business logic
+- Debugging database interactions and transaction flows
+- Iterating on prompt engineering for agent coordination
+- Managing the project repository and CI workflow
 
-From the `project.zip` starter archive, you will find:
+The `CLAUDE.md` file in this repo provides project context that Claude Code uses to understand the codebase and maintain consistency across sessions.
 
-- `project_starter.py`: The main Python script you will modify to implement your agent system
-- `quotes.csv`: Historical quote data used for reference by quoting agents
-- `quote_requests.csv`: Incoming customer requests used to build quoting logic
-- `quote_requests_sample.csv`: A set of simulated test cases to evaluate your system
+## Tech Stack
 
----
+- **Python 3.8+**
+- **smolagents** — agent orchestration framework
+- **SQLite** via SQLAlchemy — inventory, transactions, and quotes database
+- **OpenAI-compatible LLM** — via Vocareum proxy endpoint
 
-## Workspace Instructions
+## Project Structure
 
-All the files have been provided in the VS Code workspace on the Udacity platform. Please install the agent orchestration framework of your choice.
+```
+├── project_starter.py          # Main script: DB setup, helpers, agents, test harness
+├── quotes.csv                  # Historical quote data
+├── quote_requests.csv          # Incoming customer requests
+├── quote_requests_sample.csv   # 20 test scenarios for evaluation
+├── requirements.txt            # Python dependencies
+├── CLAUDE.md                   # Claude Code project instructions
+└── .env                        # API key (not committed)
+```
 
-## Local setup instructions
+## Setup
 
-1. Install dependencies
+1. **Install dependencies:**
 
-Make sure you have Python 3.8+ installed.
+   ```bash
+   pip install -r requirements.txt
+   pip install smolagents
+   ```
 
-You can install all required packages using the provided requirements.txt file:
+2. **Create a `.env` file** with your API key:
 
-`pip install -r requirements.txt`
+   ```
+   UDACITY_OPENAI_API_KEY=your_key_here
+   ```
 
-If you're using smolagents, install it separately:
+   This project uses a custom OpenAI-compatible proxy at `https://openai.vocareum.com/v1`.
 
-`pip install smolagents`
+3. **Run the project:**
 
-For other options like pydantic-ai or npcsh[lite], refer to their documentation.
+   ```bash
+   python project_starter.py
+   ```
 
-2. Create .env File
+## How It Works
 
-Add your OpenAI-compatible API key:
+The multi-agent system is defined in the `"YOUR MULTI AGENT STARTS HERE"` section of `project_starter.py`. When run:
 
-`UDACITY_OPENAI_API_KEY=your_openai_key_here`
+1. `run_test_scenarios()` simulates a series of customer requests from `quote_requests_sample.csv`.
+2. The orchestrator routes each request to the appropriate agent.
+3. Agents coordinate inventory checks, generate quotes, and process orders.
+4. Results are saved to `test_results.csv` along with a financial report.
 
-This project uses a custom OpenAI-compatible proxy hosted at https://openai.vocareum.com/v1.
+**Database tables:**
+- `inventory` — paper items with stock levels and unit prices (~17 of 42 items stocked)
+- `transactions` — stock orders and sales (cash balance starts at $50,000)
+- `quotes` / `quote_requests` — historical quote data
 
-## How to Run the Project
+## Evaluation Criteria
 
-Start by defining your agents in the `"YOUR MULTI AGENT STARTS HERE"` section inside `template.py`. Once your agent team is ready:
+The system must produce `test_results.csv` showing:
+- At least 3 requests that change the cash balance
+- At least 3 successfully fulfilled quote requests
+- Some requests correctly not fulfilled (e.g., items not in inventory)
+- Customer-facing outputs include rationale without exposing internal data
 
-1. Run the `run_test_scenarios()` function at the bottom of the script.
-2. This will simulate a series of customer requests.
-3. Your system should respond by coordinating inventory checks, generating quotes, and processing orders.
+## License
 
-Output will include:
-
-- Agent responses
-- Cash and inventory updates
-- Final financial report
-- A `test_results.csv` file with all interaction logs
-
----
-
-## Tips for Success
-
-- Start by sketching a **flow diagram** to visualize agent responsibilities and interactions.
-- Test individual agent tools before full orchestration.
-- Always include **dates** in customer requests when passing data between agents.
-- Ensure every quote includes **bulk discounts** and uses past data when available.
-- Use the **exact item names** from the database to avoid transaction failures.
-
----
-
-## Submission Checklist
-
-Make sure to submit the following files:
-
-1. Your completed `template.py` or `project_starter.py` with all agent logic
-2. A **workflow diagram** describing your agent architecture and data flow
-3. A `README.txt` or `design_notes.txt` explaining how your system works
-4. Outputs from your test run (like `test_results.csv`)
-
----
+This project was created as part of the [Udacity](https://www.udacity.com/) AI curriculum.
